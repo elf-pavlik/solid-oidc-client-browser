@@ -75,8 +75,8 @@ export class SessionCore implements Session {
 
   protected onSessionStateChange?: () => void;
 
-  private information: SessionInformation;
-  private database?: SessionDatabase;
+  protected information: SessionInformation;
+  protected database?: SessionDatabase;
 
   protected refreshPromise?: Promise<void>;
   protected resolveRefresh?: (() => void);
