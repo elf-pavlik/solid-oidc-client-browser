@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 If you have any questions, see the issues and discussions (e.g. [#18](https://github.com/uvdsl/solid-oidc-client-browser/issues/18))
 
+
+## [0.2.2] - 2025-12-16
+
+### ✨ Features (Added)
+
+- **Exposed the `SessionIDB`**, an IndexedDB-based implementation of the `SessionDatabase` interface, such that it can be used out-of-the-box in a `SessionCore`, the Session implementation of the `core` library version.
+
+### 🐛 Fixed
+
+- **Removed requirement for `id_token_signed_response_alg: ES256`** in dynamic client registration, which resulted in being unable to authenticate with servers that do not support that algorithm, e.g. NSS (related to [#14](https://github.com/uvdsl/solid-oidc-client-browser/issues/14)).
+
 ## [0.2.1] - 2025-11-05
 
 ### ✨ Features (Added)
@@ -18,7 +29,7 @@ If you have any questions, see the issues and discussions (e.g. [#18](https://gi
 
   - **EXPIRATION**: Fires when the session has definitively expired.
 
-### ⚙️ Changed
+### ♻️ Changed
 
 - For backward compatibility, the original `onSessionStateChange`, `onSessionExpirationWarning`, and `onSessionExpiration` callbacks in SessionOptions are now powered by the new EventTarget system.
 
@@ -102,7 +113,7 @@ If you have any questions, see the issues and discussions (e.g. [#18](https://gi
 
 ## [0.0.9] - 2025-05-05
 
-### ⚙️ Changed
+### ♻️ Changed
 
 - Uses IndexedDB to store the non-extractable DPoP KeyPair, which is now correctly remembered for use in the RefreshTokenGrant.
 
@@ -118,7 +129,7 @@ If you have any questions, see the issues and discussions (e.g. [#18](https://gi
 
 ## [0.0.7] - 2025-04-22
 
-### ⚙️ Changed
+### ♻️ Changed
 
 - Removed superfluous n3 dependency.
 
@@ -126,7 +137,7 @@ If you have any questions, see the issues and discussions (e.g. [#18](https://gi
 
 ## [0.0.6] - 2025-04-22
 
-### ⚙️ Changed
+### ♻️ Changed
 
 - Replaced axios dependency with the browser's native `window.fetch`, reducing bundle size.
 
@@ -142,7 +153,7 @@ If you have any questions, see the issues and discussions (e.g. [#18](https://gi
 
 ## [0.0.4] - 2025-04-18
 
-### ⚙️ Changed
+### ♻️ Changed
 
 - Updated publishing setup to use Rollup for bundling and tree-shaking.
 
