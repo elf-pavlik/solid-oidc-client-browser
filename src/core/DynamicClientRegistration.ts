@@ -15,7 +15,7 @@ const requestDynamicClientRegistration = async (
   const client_registration_request_body = {
     ...client_details,
     grant_types: ["authorization_code", "refresh_token"],
-    id_token_signed_response_alg: "ES256",
+    // id_token_signed_response_alg: "ES256", // omitting as NSS does not support ES256 while CSS does not support RS256
     token_endpoint_auth_method: "none",
     application_type: "web",
     subject_type: "public",

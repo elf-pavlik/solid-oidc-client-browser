@@ -72,7 +72,7 @@ describe('requestDynamicClientRegistration', () => {
       expect(requestBody).toMatchObject({
         redirect_uris: ['https://app.example.com/redirect'],
         grant_types: ['authorization_code', 'refresh_token'],
-        id_token_signed_response_alg: 'ES256',
+        // id_token_signed_response_alg: 'ES256', // as commented out in the code because this is actually not required for this library, we can use what jose supports
         token_endpoint_auth_method: 'none',
         application_type: 'web',
         subject_type: 'public',
