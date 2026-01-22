@@ -113,7 +113,8 @@ export class SessionCore extends EventTarget implements Session {
   }
 
   async login(idp: string, redirect_uri: string) {
-    await redirectForLogin(idp, redirect_uri, this.information.clientDetails)
+    const fedCMFakeUrl = await redirectForLogin(idp, redirect_uri, this.information.clientDetails)
+    await this.handleRedirectFromLogin(fedCMFakeUrl)
   }
 
   /**
@@ -122,9 +123,9 @@ export class SessionCore extends EventTarget implements Session {
    * Upon success, it tries to persist information to refresh tokens in the session database.
    * If no database was provided, no information is persisted.
    */
-  async handleRedirectFromLogin() {
+  async handleRedirectFromLogin(url?: string) {
     // Redirect after Authorization Code Grant // memory via sessionStorage
-    const newSessionInfo = await onIncomingRedirect(this.information.clientDetails, this.database);
+    const newSessionInfo = await onIncomingRedirect(url ? new URL(url) : undefined, this.information.clientDetails, this.database);
     // no session - we remain unauthenticated
     if (!newSessionInfo.tokenDetails) return;
     // we got a session

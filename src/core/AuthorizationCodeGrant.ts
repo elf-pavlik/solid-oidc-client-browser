@@ -3,6 +3,12 @@ import { requestDynamicClientRegistration } from "./DynamicClientRegistration";
 import { ClientDetails, DynamicRegistrationClientDetails, IdentityProviderDetails, SessionInformation, TokenDetails } from "./SessionInformation";
 import { SessionDatabase } from "./SessionDatabase";
 
+// @ts-ignore
+const buildRedirectUrl = (code, state, providerUrl) => {
+  const base = window.location.href;
+  return `${base}?code=${code}&state=${state}&iss=${encodeURIComponent(providerUrl)}`;
+};
+
 /**
  * Login with the idp, using a provided `client_id` or dynamic client registration if none provided.
  *
@@ -89,7 +95,30 @@ const redirectForLogin = async (idp: string, redirect_uri: string, client_detail
     `&state=${csrf_token}` +
     `&prompt=consent`; // this query parameter value MUST be present for CSS v7 to issue a refresh token ( // TODO open issue because prompting is the default behaviour but without this query param no refresh token is provided despite the "remember this client" box being checked)
 
-  window.location.href = redirect_to_idp;
+  // do FedCM dance 💃🏻
+  // do check first!
+  const params = Object.fromEntries(new URL(redirect_to_idp).searchParams);
+  const credential = await navigator.credentials.get({
+    // @ts-ignore
+    identity: {
+      providers: [{
+        configURL: 'any',
+        clientId: params.client_id,
+        registered: true,
+        params: {
+          code_challenge: params.code_challenge,
+          code_challenge_method: params.code_challenge_method,
+          state: params.state
+        }
+      }]
+    }
+  });
+  console.log(credential)
+  // XXX: we ♥️ trailing slash errors
+  // @ts-ignore
+  const fedCMissuer = new URL(credential.configURL).origin + '/'
+  // @ts-ignore
+  return buildRedirectUrl(credential.token, params.state, fedCMissuer)
 };
 
 /**
@@ -119,8 +148,7 @@ const getPKCEcode = async () => {
  * URL contains authrization code, issuer (idp) and state (csrf token),
  * get an access token for the authrization code.
  */
-const onIncomingRedirect = async (client_details?: ClientDetails, database?: SessionDatabase) => {
-  const url = new URL(window.location.href);
+const onIncomingRedirect = async (url = new URL(window.location.href), client_details?: ClientDetails, database?: SessionDatabase) => {
   // authorization code
   const authorization_code = url.searchParams.get("code");
   // if no code, session remains unauthenticated at this point
