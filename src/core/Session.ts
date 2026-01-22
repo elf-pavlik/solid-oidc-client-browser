@@ -1,5 +1,5 @@
 import { SignJWT, decodeJwt, exportJWK } from "jose";
-import { redirectForLogin, onIncomingRedirect } from "./AuthorizationCodeGrant";
+import { redirectForLogin, fedCMLogin, onIncomingRedirect } from "./AuthorizationCodeGrant";
 import { renewTokens } from "./RefreshTokenGrant";
 import { SessionDatabase } from "./SessionDatabase";
 import { DynamicRegistrationClientDetails, DereferencableIdClientDetails, SessionInformation, TokenDetails } from "./SessionInformation";
@@ -113,7 +113,12 @@ export class SessionCore extends EventTarget implements Session {
   }
 
   async login(idp: string, redirect_uri: string) {
-    const fedCMFakeUrl = await redirectForLogin(idp, redirect_uri, this.information.clientDetails)
+    await redirectForLogin(idp, redirect_uri, this.information.clientDetails)
+  }
+
+  async fedCM() {
+    if (!this.information.clientDetails.client_id) throw new Error('FedCM requires Client ID URL')
+    const fedCMFakeUrl = await fedCMLogin(this.information.clientDetails.client_id)
     await this.handleRedirectFromLogin(fedCMFakeUrl)
   }
 

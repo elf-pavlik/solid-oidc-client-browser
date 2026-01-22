@@ -9,18 +9,48 @@ const buildRedirectUrl = (code, state, providerUrl) => {
   return `${base}?code=${code}&state=${state}&iss=${encodeURIComponent(providerUrl)}`;
 };
 
-/**
- * Login with the idp, using a provided `client_id` or dynamic client registration if none provided.
- *
- * @param idp
- * @param redirect_uri
- */
-const redirectForLogin = async (idp: string, redirect_uri: string, client_details?: ClientDetails) => {
-  // RFC 6749 - Section 3.1.2 - sanitize redirect_uri
-  const redirect_uri_ = new URL(redirect_uri);
-  const redirect_uri_sane = redirect_uri_.origin + redirect_uri_.pathname + redirect_uri_.search;
-  // lookup openid configuration of idp
-  const idp_origin = new URL(idp).origin;
+const fedCMLogin = async (clientId: string): Promise<string> => {
+
+  // RFC 7636 PKCE, remember code verifer
+  const { pkce_code_verifier, pkce_code_challenge } = await getPKCEcode();
+  sessionStorage.setItem("pkce_code_verifier", pkce_code_verifier);
+
+  // RFC 6749 OAuth 2.0 - CSRF token
+  const csrf_token = window.crypto.randomUUID();
+  sessionStorage.setItem("csrf_token", csrf_token);
+
+  const credential = await navigator.credentials.get({
+    // @ts-ignore
+    identity: {
+      providers: [{
+        configURL: 'any',
+        clientId: clientId,
+        registered: true,
+        params: {
+          code_challenge: pkce_code_challenge,
+          code_challenge_method: 'S256',
+          state: csrf_token
+        }
+      }]
+    }
+  });
+
+  console.log('FedCM returned', credential)
+
+  // @ts-ignore
+  const fedCMissuer = new URL(credential.configURL)
+
+  // XXX: we ♥️ trailing slash errors
+  sessionStorage.setItem("idp", fedCMissuer.origin + '/');
+
+  await lookupIdp(fedCMissuer.origin + '/', fedCMissuer.origin)
+
+  // XXX: figure out how to deal with state!!!
+  // @ts-ignore
+  return buildRedirectUrl(credential.token, csrf_token, fedCMissuer.origin + '/')
+}
+
+const lookupIdp = async (idp: string, idp_origin: string) => {
   const openid_configuration =
     await fetch(`${idp_origin}/.well-known/openid-configuration`)
       .then((response) => {
@@ -48,6 +78,22 @@ const redirectForLogin = async (idp: string, redirect_uri: string, client_detail
     "jwks_uri",
     openid_configuration["jwks_uri"]
   );
+  return openid_configuration
+}
+
+/**
+ * Login with the idp, using a provided `client_id` or dynamic client registration if none provided.
+ *
+ * @param idp
+ * @param redirect_uri
+ */
+const redirectForLogin = async (idp: string, redirect_uri: string, client_details?: ClientDetails) => {
+  // RFC 6749 - Section 3.1.2 - sanitize redirect_uri
+  const redirect_uri_ = new URL(redirect_uri);
+  const redirect_uri_sane = redirect_uri_.origin + redirect_uri_.pathname + redirect_uri_.search;
+  // lookup openid configuration of idp
+  const idp_origin = new URL(idp).origin;
+  const openid_configuration = await lookupIdp(idp, idp_origin)
 
   let client_id = client_details?.client_id;
   // no client_id => attempt dynamic registration
@@ -95,30 +141,7 @@ const redirectForLogin = async (idp: string, redirect_uri: string, client_detail
     `&state=${csrf_token}` +
     `&prompt=consent`; // this query parameter value MUST be present for CSS v7 to issue a refresh token ( // TODO open issue because prompting is the default behaviour but without this query param no refresh token is provided despite the "remember this client" box being checked)
 
-  // do FedCM dance 💃🏻
-  // do check first!
-  const params = Object.fromEntries(new URL(redirect_to_idp).searchParams);
-  const credential = await navigator.credentials.get({
-    // @ts-ignore
-    identity: {
-      providers: [{
-        configURL: 'any',
-        clientId: params.client_id,
-        registered: true,
-        params: {
-          code_challenge: params.code_challenge,
-          code_challenge_method: params.code_challenge_method,
-          state: params.state
-        }
-      }]
-    }
-  });
-  console.log(credential)
-  // XXX: we ♥️ trailing slash errors
-  // @ts-ignore
-  const fedCMissuer = new URL(credential.configURL).origin + '/'
-  // @ts-ignore
-  return buildRedirectUrl(credential.token, params.state, fedCMissuer)
+  window.location.href = redirect_to_idp;
 };
 
 /**
@@ -331,4 +354,4 @@ const requestAccessToken = async (
     });
 };
 
-export { redirectForLogin, onIncomingRedirect };
+export { redirectForLogin, fedCMLogin, onIncomingRedirect };
