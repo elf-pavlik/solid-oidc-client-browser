@@ -117,9 +117,8 @@ export class SessionCore extends EventTarget implements Session {
   }
 
   async fedCM() {
-    if (!this.information.clientDetails.client_id) throw new Error('FedCM requires Client ID URL')
-    const fedCMFakeUrl = await fedCMLogin(this.information.clientDetails.client_id)
-    await this.handleRedirectFromLogin(fedCMFakeUrl)
+    const newSessionInfo = await fedCMLogin(this.information.clientDetails, this.database)
+    await this.handleLogin(newSessionInfo)
   }
 
   /**
@@ -128,17 +127,22 @@ export class SessionCore extends EventTarget implements Session {
    * Upon success, it tries to persist information to refresh tokens in the session database.
    * If no database was provided, no information is persisted.
    */
-  async handleRedirectFromLogin(url?: string) {
+  async handleRedirectFromLogin() {
     // Redirect after Authorization Code Grant // memory via sessionStorage
-    const newSessionInfo = await onIncomingRedirect(url ? new URL(url) : undefined, this.information.clientDetails, this.database);
+    const newSessionInfo = await onIncomingRedirect(this.information.clientDetails, this.database);
+    await this.handleLogin(newSessionInfo)
+  }
+
+  async handleLogin(sessionInfo: SessionInformation) {
     // no session - we remain unauthenticated
-    if (!newSessionInfo.tokenDetails) return;
+    if (!sessionInfo.tokenDetails) return;
     // we got a session
-    this.information.clientDetails = newSessionInfo.clientDetails
-    this.information.idpDetails = newSessionInfo.idpDetails;
-    await this.setTokenDetails(newSessionInfo.tokenDetails)
+    this.information.clientDetails = sessionInfo.clientDetails
+    this.information.idpDetails = sessionInfo.idpDetails;
+    await this.setTokenDetails(sessionInfo.tokenDetails)
     // callback state change 
     this.dispatchStateChangeEvent(); // we logged in
+
   }
 
   /**

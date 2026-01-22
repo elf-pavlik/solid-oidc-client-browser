@@ -3,13 +3,13 @@ import { requestDynamicClientRegistration } from "./DynamicClientRegistration";
 import { ClientDetails, DynamicRegistrationClientDetails, IdentityProviderDetails, SessionInformation, TokenDetails } from "./SessionInformation";
 import { SessionDatabase } from "./SessionDatabase";
 
-// @ts-ignore
-const buildRedirectUrl = (code, state, providerUrl) => {
-  const base = window.location.href;
-  return `${base}?code=${code}&state=${state}&iss=${encodeURIComponent(providerUrl)}`;
-};
+type FedCMData = {
+  token: string
+  configURL: string
+}
 
-const fedCMLogin = async (clientId: string): Promise<string> => {
+const fedCMLogin = async (client_details: ClientDetails, database?: SessionDatabase): Promise<SessionInformation> => {
+  if (!client_details.client_id) throw new Error('FedCM requires Client ID URL')
 
   // RFC 7636 PKCE, remember code verifer
   const { pkce_code_verifier, pkce_code_challenge } = await getPKCEcode();
@@ -24,30 +24,31 @@ const fedCMLogin = async (clientId: string): Promise<string> => {
     identity: {
       providers: [{
         configURL: 'any',
-        clientId: clientId,
+        clientId: client_details.client_id,
         registered: true,
         params: {
           code_challenge: pkce_code_challenge,
           code_challenge_method: 'S256',
+          // TODO: test without
           state: csrf_token
         }
       }]
     }
-  });
+  }) as unknown as FedCMData;
 
-  console.log('FedCM returned', credential)
-
-  // @ts-ignore
-  const fedCMissuer = new URL(credential.configURL)
+  const fedCMissuer = new URL(credential.configURL).origin
 
   // XXX: we ♥️ trailing slash errors
-  sessionStorage.setItem("idp", fedCMissuer.origin + '/');
+  await lookupIdp(fedCMissuer + '/', fedCMissuer)
 
-  await lookupIdp(fedCMissuer.origin + '/', fedCMissuer.origin)
-
-  // XXX: figure out how to deal with state!!!
-  // @ts-ignore
-  return buildRedirectUrl(credential.token, csrf_token, fedCMissuer.origin + '/')
+  // XXX: figure out how to deal with state check!!!
+  // XXX: figure out how to deal issuer check!!!
+  return completeFlow({
+    authorization_code: credential.token,
+    idp: fedCMissuer + '/',
+    client_details,
+    database
+  })
 }
 
 const lookupIdp = async (idp: string, idp_origin: string) => {
@@ -171,7 +172,8 @@ const getPKCEcode = async () => {
  * URL contains authrization code, issuer (idp) and state (csrf token),
  * get an access token for the authrization code.
  */
-const onIncomingRedirect = async (url = new URL(window.location.href), client_details?: ClientDetails, database?: SessionDatabase) => {
+const onIncomingRedirect = async (client_details?: ClientDetails, database?: SessionDatabase) => {
+  const url = new URL(window.location.href)
   // authorization code
   const authorization_code = url.searchParams.get("code");
   // if no code, session remains unauthenticated at this point
@@ -197,6 +199,32 @@ const onIncomingRedirect = async (url = new URL(window.location.href), client_de
   url.searchParams.delete("code");
   window.history.pushState({}, document.title, url.toString());
 
+  const redirect_url = url.toString()
+
+  return completeFlow({
+    client_details,
+    redirect_url,
+    authorization_code,
+    idp,
+    database
+  })
+};
+
+type FlowData = {
+  client_details?: ClientDetails
+  redirect_url?: string
+  authorization_code: string
+  idp: string
+  database?: SessionDatabase
+}
+
+const completeFlow = async ({
+  client_details,
+  redirect_url,
+  authorization_code,
+  idp,
+  database
+}: FlowData) => {
   // prepare token request
   const pkce_code_verifier = sessionStorage.getItem("pkce_code_verifier");
   if (pkce_code_verifier === null) {
@@ -224,10 +252,10 @@ const onIncomingRedirect = async (url = new URL(window.location.href), client_de
     await requestAccessToken(
       authorization_code,
       pkce_code_verifier,
-      url.toString(),
       client_id,
       token_endpoint,
-      key_pair
+      key_pair,
+      redirect_url
     )
       .then((response) => {
         if (!response.ok) {
@@ -267,7 +295,9 @@ const onIncomingRedirect = async (url = new URL(window.location.href), client_de
   // summarise session info
   const token_details = { ...token_response, dpop_key_pair: key_pair } as TokenDetails;
   const idp_details = { idp, jwks_uri, token_endpoint } as IdentityProviderDetails
-  if (!client_details) client_details = { redirect_uris: [url.toString()] };
+
+  // XXX: figure out for FedCM
+  if (!client_details) client_details = { redirect_uris: [redirect_url!] };
   client_details.client_id = client_id;
 
   // and persist refresh token details
@@ -298,7 +328,8 @@ const onIncomingRedirect = async (url = new URL(window.location.href), client_de
     idpDetails: idp_details,
     tokenDetails: token_details
   } as SessionInformation
-};
+
+}
 
 
 /**
@@ -314,10 +345,10 @@ const onIncomingRedirect = async (url = new URL(window.location.href), client_de
 const requestAccessToken = async (
   authorization_code: string,
   pkce_code_verifier: string,
-  redirect_uri: string,
   client_id: string,
   token_endpoint: string,
-  key_pair: GenerateKeyPairResult<KeyLike>
+  key_pair: GenerateKeyPairResult<KeyLike>,
+  redirect_uri?: string,
 ) => {
   // prepare public key to bind access token to
   const jwk_public_key = await exportJWK(key_pair.publicKey);
@@ -336,6 +367,17 @@ const requestAccessToken = async (
     })
     .sign(key_pair.privateKey);
 
+  const params = {
+    grant_type: "authorization_code",
+    code: authorization_code,
+    code_verifier: pkce_code_verifier,
+    client_id: client_id,
+  }
+
+  // FedCM doesn't use redirects
+  // @ts-ignore
+  if (redirect_uri) params.redirect_uri = redirect_uri
+
   return fetch(
     token_endpoint,
     {
@@ -344,13 +386,7 @@ const requestAccessToken = async (
         dpop,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: authorization_code,
-        code_verifier: pkce_code_verifier,
-        redirect_uri: redirect_uri,
-        client_id: client_id,
-      }),
+      body: new URLSearchParams(params),
     });
 };
 

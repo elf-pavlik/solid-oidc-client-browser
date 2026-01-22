@@ -74,8 +74,8 @@ export class WebWorkerSession extends SessionCore {
     };
 
 
-    async handleRedirectFromLogin(url: string) {
-        await super.handleRedirectFromLogin(url);
+    async handleRedirectFromLogin() {
+        await super.handleRedirectFromLogin();
         if (this.isActive) { // If login was successful, tell the worker to schedule refreshing
             this.worker.port.postMessage({
                 type: RefreshMessageTypes.SCHEDULE,
